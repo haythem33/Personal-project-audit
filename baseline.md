@@ -67,6 +67,29 @@
 
 ---
 
+## Prioritization System
+
+To rank the corrective findings, this report uses a custom scoring model — the **SRC/E Score** (Severity × Reach × Confidence ÷ Effort) — rather than a standard framework like ICE, RICE, or MoSCoW.
+
+Each corrective finding is rated on four dimensions, each on a **1–5 scale**:
+
+| Dimension | Question it answers | 1 (low) | 5 (high) |
+|---|---|---|---|
+| **Severity** | How badly does this hurt the user experience or metric if left unfixed? | Minor/cosmetic | Page-breaking / fails Core Web Vitals |
+| **Reach** | How much of the traffic/usage does this touch? | Rare/edge case | Every single page load |
+| **Confidence** | How certain are we in the diagnosis and proposed fix, based on the evidence gathered? | Speculative, single weak signal | Directly observed in both lab and field data |
+| **Effort** | How much engineering work is the fix likely to take? (used as the divisor, so higher effort *lowers* priority) | Trivial (config/header change) | Major refactor/architecture change |
+
+**Formula:**
+
+```
+Priority Score = (Severity × Reach × Confidence) ÷ Effort
+```
+
+Higher scores = higher priority. This differs from ICE (which multiplies three additive-feeling 1–10 scores together) and RICE (which uses an absolute Reach number and treats Effort as person-months) by keeping every input on the same 1–5 scale and using Effort strictly as a divisor — so a finding with a trivial fix and strong evidence can outrank a more "severe-sounding" finding that would require a large rewrite, deliberately surfacing quick wins.
+
+---
+
 ## Findings
 
 Each finding below represents one distinct, independently-observable root cause. Metrics that share a root cause (e.g. FCP, LCP, and Speed Index all delayed by the same render-blocking bundle) are grouped as a single finding rather than listed separately.
@@ -81,6 +104,8 @@ Each finding below represents one distinct, independently-observable root cause.
 
 **Solution (likely):** Code-split the bundle so only what's needed for the first paint loads up front; defer ad/analytics scripts and below-the-fold logic; preload the actual LCP element (e.g. the first score card/hero image) directly rather than waiting on it to be requested by JS.
 
+**Priority Rating:** Severity 5 · Reach 5 · Confidence 4 · Effort 4 → **Priority Score: (5×5×4)/4 = 25**
+
 ---
 
 ### Corrective Finding 2: Heavy main-thread JS execution blocks user interaction
@@ -92,6 +117,8 @@ Each finding below represents one distinct, independently-observable root cause.
 **Cause (likely):** Long JavaScript tasks — likely live-score polling/websocket handling, ad scripts, and analytics all executing on the main thread — block input processing. This is distinct from Finding 1: the issue here is execution cost after load, not download/paint delay.
 
 **Solution (likely):** Break up long tasks (code-splitting, `requestIdleCallback`/scheduler APIs for non-urgent work), defer third-party scripts until after the page is interactive, and audit/reduce ad and tracking script overhead.
+
+**Priority Rating:** Severity 4 · Reach 5 · Confidence 5 · Effort 3 → **Priority Score: (4×5×5)/3 = 33.3**
 
 ---
 
@@ -105,6 +132,8 @@ Each finding below represents one distinct, independently-observable root cause.
 
 **Solution (likely):** Set explicit `width`/`height` (or `aspect-ratio`) on all images and ad containers so space is reserved before content loads, and avoid injecting live-updating content above existing content without a fixed-size wrapper.
 
+**Priority Rating:** Severity 2 · Reach 3 · Confidence 2 · Effort 2 → **Priority Score: (2×3×2)/2 = 6**
+
 ---
 
 ### Corrective Finding 4: JavaScript is not effectively cached on repeat visits
@@ -116,6 +145,8 @@ Each finding below represents one distinct, independently-observable root cause.
 **Cause (likely):** JS files likely lack long-lived cache headers (`Cache-Control: max-age`/`immutable`) or aren't served with content-hashed filenames, so the browser can't safely reuse the cached copy.
 
 **Solution (likely):** Serve JS with content-hashed filenames and long `max-age`/`immutable` cache headers so unchanged code is never re-downloaded; consider a service worker for repeat-visit speed.
+
+**Priority Rating:** Severity 3 · Reach 5 · Confidence 5 · Effort 2 → **Priority Score: (3×5×5)/2 = 37.5**
 
 ---
 
@@ -129,6 +160,8 @@ Each finding below represents one distinct, independently-observable root cause.
 
 **Solution (likely):** Consolidate first-party assets where practical (image sprites/icon fonts, bundling small CSS files), and audit third-party scripts to remove or defer any that aren't essential to the initial experience.
 
+**Priority Rating:** Severity 2 · Reach 4 · Confidence 3 · Effort 3 → **Priority Score: (2×4×3)/3 = 8**
+
 ---
 
 ### Corrective Finding 6: Weak compression on first load relative to payload size
@@ -140,6 +173,8 @@ Each finding below represents one distinct, independently-observable root cause.
 **Cause (likely):** Assets may be served without Brotli compression (falling back to weaker/no compression), and images may not be served in modern, better-compressing formats (WebP/AVIF).
 
 **Solution (likely):** Enable Brotli compression at the server/CDN level for all text-based assets (JS, CSS), and convert images to WebP/AVIF with appropriate quality settings.
+
+**Priority Rating:** Severity 3 · Reach 5 · Confidence 3 · Effort 2 → **Priority Score: (3×5×3)/2 = 22.5**
 
 ---
 
@@ -173,6 +208,8 @@ These findings are specifically about the *gap* between mobile and desktop, not 
 
 **Solution (likely):** Beyond the general bundle-size fixes in Finding 1, consider adaptive loading specifically for mobile/low-end devices — e.g. using `navigator.connection` or `navigator.deviceMemory` to serve a lighter-weight bundle (fewer non-critical scripts, lower-resolution images) to constrained devices rather than shipping the same payload to every client regardless of capability.
 
+**Priority Rating:** Severity 4 · Reach 5 · Confidence 4 · Effort 4 → **Priority Score: (4×5×4)/4 = 20**
+
 ---
 
 ### Finding 8: Real mobile users fail Core Web Vitals while desktop users pass
@@ -185,4 +222,24 @@ These findings are specifically about the *gap* between mobile and desktop, not 
 
 ---
 
-*Next steps: prioritize Corrective Findings 1 and 2 first (JS bundle size and execution cost), since they have the largest measured impact and touch the most metrics (FCP, LCP, Speed Index, TBT, and field-confirmed INP failure).*
+---
+
+## Final Priority Ranking
+
+Corrective findings ranked by SRC/E Priority Score (highest = fix first):
+
+| Rank | Finding | Severity | Reach | Confidence | Effort | Priority Score |
+|---|---|---|---|---|---|---|
+| 1 | Finding 4 — JS not cached on repeat visits | 3 | 5 | 5 | 2 | **37.5** |
+| 2 | Finding 2 — Main-thread JS execution blocks interaction | 4 | 5 | 5 | 3 | **33.3** |
+| 3 | Finding 1 — Oversized JS bundle blocks paint | 5 | 5 | 4 | 4 | **25** |
+| 4 | Finding 6 — Weak compression on first load | 3 | 5 | 3 | 2 | **22.5** |
+| 5 | Finding 7 — CPU throttling amplifies mobile cost | 4 | 5 | 4 | 4 | **20** |
+| 6 | Finding 5 — High request count overhead | 2 | 4 | 3 | 3 | **8** |
+| 7 | Finding 3 — Layout shift from unreserved space | 2 | 3 | 2 | 2 | **6** |
+
+**Takeaway:** the SRC/E model surfaces Finding 4 (fixing JS cache headers) as the top priority — not because it's the most severe problem in isolation, but because it combines strong evidence, full reach, and very low implementation effort into the best return on effort. Findings 2 and 1 remain close behind as the highest-severity structural fixes, while Finding 3 (layout shift) ranks lowest given its weaker field-data confirmation and moderate reach.
+
+---
+
+*Next steps: address Finding 4 first (JS caching headers) as the quickest, highest-confidence win, followed by Findings 2 and 1 (main-thread execution and bundle size) since they carry the highest severity and touch the most metrics (FCP, LCP, Speed Index, TBT, and field-confirmed INP failure).*
