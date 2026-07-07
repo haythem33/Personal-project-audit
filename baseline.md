@@ -2,22 +2,22 @@
 
 **Site:** Diwan Sport — [https://diwansport.com/](https://diwansport.com/)
 **Primary page tested:** [https://diwansport.com/match](https://diwansport.com/match) (Live Matches / Scores page)
-**Conditions:** Mobile, Lighthouse 13.4.0, emulated Moto G Power, slow 4G throttling (lab data); Chrome DevTools Network tab (networking data)
+**Conditions:** **Mobile** — Lighthouse 13.4.0, emulated **Moto G Power**, **Slow 4G network throttling** with 4x CPU slowdown (lab data); Chrome DevTools Network tab (networking data). All metrics below are **mobile** unless a row is explicitly labeled Desktop.
 
 ---
 
 ## Metrics Summary
 
-### PageSpeed Insights — Category Scores (Mobile)
+### PageSpeed Insights — Category Scores (Mobile vs. Desktop)
 
-| Category | Score |
-|---|---|
-| Performance | 32 🔴 |
-| Accessibility | 87 🟠 |
-| Best Practices | 100 🟢 |
-| SEO | 100 🟢 |
+| Category | Mobile | Desktop |
+|---|---|---|
+| Performance | 32 🔴 | 62 🟠 |
+| Accessibility | 87 🟠 | 85 🟠 |
+| Best Practices | 100 🟢 | 100 🟢 |
+| SEO | 100 🟢 | 100 🟢 |
 
-### Core Web Vitals / Rendering (Lab Data, Mobile)
+### Core Web Vitals / Rendering — Lab Data (Mobile)
 
 | Metric | Value | Status |
 |---|---|---|
@@ -27,20 +27,24 @@
 | Cumulative Layout Shift (CLS) | 0.175 | 🟠 |
 | Speed Index | 14.2 s | 🔴 |
 
-### Core Web Vitals (Field Data, Mobile — real users, 28-day period)
+*Lab data is Mobile-only in this baseline (Moto G Power, Slow 4G, 4x CPU throttling) since this is the profile discussed in class and the one that best represents real-world constrained conditions.*
 
-| Metric | Value | Status |
+### Core Web Vitals — Field Data (Mobile vs. Desktop, real users, 28-day period)
+
+| Metric | Mobile | Desktop |
 |---|---|---|
-| Largest Contentful Paint (LCP) | 2.2 s | 🟢 |
-| Interaction to Next Paint (INP) | 221 ms | 🔴 |
-| Cumulative Layout Shift (CLS) | 0 | 🟢 |
-| First Contentful Paint (FCP) | 1.9 s | 🟠 |
-| Time to First Byte (TTFB) | 1.1 s | 🟠 |
-| **Overall Assessment** | **Failed** | 🔴 |
+| Largest Contentful Paint (LCP) | 2.2 s 🟢 | 1.5 s 🟢 |
+| Interaction to Next Paint (INP) | 221 ms 🔴 | 78 ms 🟢 |
+| Cumulative Layout Shift (CLS) | 0 🟢 | 0.1 🟠 |
+| First Contentful Paint (FCP) | 1.9 s 🟠 | 1.2 s 🟢 |
+| Time to First Byte (TTFB) | 1.1 s 🟠 | 0.5 s 🟢 |
+| **Overall Assessment** | **Failed** 🔴 | **Passed** 🟢 |
 
-*Note the gap between lab and field data: real users' devices/networks vary, and CrUX only reflects the origin/URL sample it collects — but the failed INP in the field confirms the lab-measured TBT is a real, user-facing problem, not just a synthetic artifact.*
+*Note the gap between lab and field data: real users' devices/networks vary, and CrUX only reflects the origin/URL sample it collects — but the failed INP in the field confirms the lab-measured TBT is a real, mobile-specific, user-facing problem, not just a synthetic artifact.*
 
-### Networking
+### Networking (Mobile — Chrome DevTools Network tab)
+
+> Note: these captures reflect cache on/off state (as tested) but throttling wasn't explicitly confirmed for this pass. For full consistency with the lab rendering data above, re-run with Network throttling set to **Slow 4G** and device emulation set to **Moto G Power** in DevTools if you want networking numbers directly comparable to the PSI mobile profile.
 
 | | Cold Load (cache disabled) | Soft Refresh (cache enabled) |
 |---|---|---|
@@ -152,6 +156,32 @@ Each finding below represents one distinct, independently-observable root cause.
 **Metric(s) affected:** Best Practices (100/100), SEO (100/100)
 
 **Why this is good:** Despite the significant performance issues, the site follows solid technical fundamentals — no flagged console errors, secure/valid protocol usage, and complete on-page SEO signals (crawlability, indexability, metadata). This suggests the performance problems are isolated to specific implementation choices (bundle size, caching, compression) rather than systemic engineering issues across the site.
+
+---
+
+## Mobile-Specific Findings
+
+These findings are specifically about the *gap* between mobile and desktop, not just mobile numbers in isolation — grounded in the mobile-vs-desktop comparisons captured in the Metrics Summary above.
+
+### Corrective Finding 7: CPU throttling disproportionately amplifies the JS execution cost on mobile
+
+**Metric(s) affected:** Performance score (32 mobile vs. 62 desktop — a 30-point gap), Total Blocking Time (mobile lab), Interaction to Next Paint (221 ms mobile field vs. 78 ms desktop field)
+
+**How it affects users:** Mobile users experience a dramatically worse version of the same page than desktop users — not just "somewhat slower," but a categorically different experience (Performance essentially doubles from red to orange, and Core Web Vitals go from Failed to Passed) purely by switching device class.
+
+**Cause (likely):** The same ~5.77 MB JS bundle (Corrective Finding 1) is downloaded and executed on both platforms, but mobile testing applies 4x CPU throttling to simulate a mid-tier device — meaning the identical amount of JS work takes roughly 4x longer to parse and execute on mobile hardware, compounding the download-time penalty from Slow 4G network throttling on top of it.
+
+**Solution (likely):** Beyond the general bundle-size fixes in Finding 1, consider adaptive loading specifically for mobile/low-end devices — e.g. using `navigator.connection` or `navigator.deviceMemory` to serve a lighter-weight bundle (fewer non-critical scripts, lower-resolution images) to constrained devices rather than shipping the same payload to every client regardless of capability.
+
+---
+
+### Finding 8: Real mobile users fail Core Web Vitals while desktop users pass
+
+**Metric(s) affected:** Overall Core Web Vitals Assessment (Mobile: Failed, Desktop: Passed), driven by Interaction to Next Paint (221 ms mobile vs. 78 ms desktop)
+
+**How it affects users:** This is field data — real Chrome users, not a lab simulation — confirming the mobile/desktop gap isn't a testing artifact. A meaningful share of real mobile visitors are having a genuinely unresponsive experience tapping match filters or score cards, while desktop visitors are not.
+
+**Why this matters as a separate finding:** It's tempting to treat this as "the same issue as Finding 7," but it's independently valuable: it confirms the lab-measured mobile/desktop gap actually shows up in real-world usage at scale (CrUX's 28-day aggregate), not just in a single throttled test run — which changes how urgently the mobile-specific fixes in Finding 7 should be prioritized.
 
 ---
 
